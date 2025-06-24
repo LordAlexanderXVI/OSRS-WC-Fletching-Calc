@@ -328,7 +328,7 @@
                     resultsDisplayEl.style.display = 'none';
                     return;
                 }
-                const invSize = state.inventorySpace - 1;
+                const invSize = state.inventorySpace;
                 const wcRate = state.wcRates[state.selectedTree];
                 const tree = DATA.trees[state.selectedTree];
                 const timeWC = (invSize / wcRate.logsHr) * 3600;
