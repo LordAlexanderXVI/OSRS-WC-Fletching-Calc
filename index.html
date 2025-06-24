@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OSRS Woodcutting Efficiency Calculator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Warm Neutral Harmony -->
+    <!-- Application Structure Plan: The application uses a guided, multi-step workflow. 1) A global 'Player Input' panel at the top allows users to define their character's stats and gear. 2) A 'Woodcutting Analysis' panel immediately reacts to these inputs, showing raw chopping rates for all eligible trees. This section allows the user to select a target tree. 3) A 'Chop & Bank Cycle Analysis' panel now exclusively calculates the efficiency of gathering and banking logs, with its own dedicated banking time input. 4) A 'Banked Fletching Calculator' is now fully integrated, auto-populating from the results of the previous sections to provide a seamless analysis of resource processing. This logical progression makes the complex calculations intuitive and easy to follow. -->
+    <!-- Visualization & Content Choices: 
+        - Report Info: Woodcutting Success Formula, Axe/Tree Properties. Goal: Inform & Compare. Viz: Dynamic HTML Table. Interaction: User inputs (level, axe) trigger real-time recalculation of the table showing Raw WC XP/hr and Logs/hr. Rows are clickable to select a tree for deeper analysis. Justification: A table is ideal for comparing stats across many options (trees).
+        - Report Info: Fletching actions, levels, XP. Goal: User Selection. Viz: Dynamic Dropdown Menu. Interaction: The dropdown is filtered based on the user's fletching level and the selected log type. Justification: Prevents users from selecting invalid options, streamlining the process.
+        - Report Info: Cycle Time Breakdown (WC, Bank). Goal: Analyze Bottlenecks. Viz: Doughnut Chart (Chart.js). Interaction: Hovering over chart segments shows the precise time in seconds for each activity. Justification: A visual, proportional representation of time is more intuitive for identifying the most time-consuming part of a cycle than raw numbers alone.
+    -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #FDFBF8; color: #4A4A4A; }
+        .card { background-color: #FFFFFF; border-radius: 0.75rem; box-shadow: 0 4px 12px -1px rgba(0, 0, 0, 0.07), 0 2px 8px -1px rgba(0, 0, 0, 0.04); }
+        .card-header { background-color: #F7F3EE; border-bottom: 1px solid #EBE4DB; }
+        .btn { border-radius: 0.5rem; font-weight: 500; padding: 0.5rem 1rem; transition: all 0.2s ease; cursor: pointer; }
+        .btn-primary { background-color: #8B725A; color: #FFFFFF; }
+        .btn-primary:hover { background-color: #745f4d; }
+        .input-field { border-radius: 0.5rem; border: 1px solid #D1D5DB; padding: 0.5rem 0.75rem; transition: border-color 0.2s, box-shadow 0.2s; }
+        .input-field:focus { border-color: #8B725A; box-shadow: 0 0 0 2px rgba(139, 114, 90, 0.2); outline: none; }
+        .results-table tr:hover { background-color: #F7F3EE; cursor: pointer; }
+        .results-table tr.selected { background-color: #EBE4DB; font-weight: 600; }
+        .chart-container { position: relative; width: 100%; max-width: 300px; margin: 1rem auto; height: auto; aspect-ratio: 1 / 1; }
+        .hidden-section { display: none; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #8B725A; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="antialiased">
+
+    <header class="bg-white/80 backdrop-blur-lg sticky top-0 z-30 shadow-sm">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center space-x-3">
+                    <span class="text-2xl">🪵</span>
+                    <h1 class="text-xl font-bold text-gray-800">Woodcutting Skilling Calculator</h1>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto p-4 sm:p-6 lg:p-8 space-y-8">
+        
+        <!-- Step 1: Player Inputs -->
+        <section id="inputs" class="card p-6">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">Step 1: Set your Woodcutting/Fletching Level and inventory Space</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div>
+                    <label for="wc-level" class="block text-sm font-medium text-gray-700">Woodcutting Level</label>
+                    <input type="number" id="wc-level" class="input-field w-full mt-1" value="1" min="1" max="99">
+                </div>
+                <div>
+                    <label for="fletch-level" class="block text-sm font-medium text-gray-700">Fletching Level</label>
+                    <input type="number" id="fletch-level" class="input-field w-full mt-1" value="1" min="1" max="99">
+                </div>
+                <div>
+                    <label for="axe-select" class="block text-sm font-medium text-gray-700">Axe Type</label>
+                    <select id="axe-select" class="input-field w-full mt-1">
+                        <!-- Options populated by JS -->
+                    </select>
+                </div>
+                 <div>
+                    <label for="inventory-space" class="block text-sm font-medium text-gray-700">Inventory Space</label>
+                    <input type="number" id="inventory-space" class="input-field w-full mt-1" value="28" min="2" max="28">
+                </div>
+            </div>
+        </section>
+
+        <!-- Step 2: Woodcutting Analysis -->
+        <section id="woodcutting-results" class="card p-6">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">Step 2: Select a Tree to Chop</h2>
+            <p class="text-sm text-gray-600 mb-4">The table below shows your calculated raw efficiency for all trees you can currently chop. Click a row to select a tree and proceed to the final analysis.</p>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tree</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Log Type</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Success %</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Raw WC XP/hr</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Raw Logs/hr</th>
+                        </tr>
+                    </thead>
+                    <tbody id="wc-results-tbody" class="bg-white divide-y divide-gray-200 results-table">
+                        <!-- Rows populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Step 3: Combined Cycle Analysis -->
+        <section id="final-results" class="hidden-section card p-6">
+            <h2 class="text-xl font-bold text-gray-800 mb-2">Step 3: Chop & Bank Cycle Analysis</h2>
+            <p class="text-sm text-gray-600 mb-4">You've selected to chop <b id="selected-tree-name"></b>. Adjust the banking time below to see your effective efficiency.</p>
+            
+            <div class="mb-6">
+                <label for="banking-time" class="block text-sm font-medium text-gray-700">Time to Bank (seconds)</label>
+                <input type="number" id="banking-time" class="input-field w-full md:w-1/4 mt-1" value="10" min="0">
+            </div>
+
+            <div id="results-display" class="mt-6 border-t border-gray-200 pt-6">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div class="p-4 rounded-lg bg-blue-50 border border-blue-200">
+                            <h4 class="font-medium text-blue-800">Overall Woodcutting XP/hr</h4>
+                            <p id="final-wc-xp" class="text-3xl font-bold text-blue-900 mt-1">0</p>
+                            <p class="text-xs text-blue-600">Accounts for banking downtime.</p>
+                        </div>
+                        <div class="p-4 rounded-lg bg-orange-50 border border-orange-200">
+                            <h4 class="font-medium text-orange-800">Banked Logs/hr</h4>
+                            <p id="banked-logs-hr" class="text-3xl font-bold text-orange-900 mt-1">0</p>
+                            <p class="text-xs text-orange-600">Effective logs gathered per hour.</p>
+                        </div>
+                    </div>
+                    <div class="p-4 rounded-lg bg-gray-50 border border-gray-200">
+                         <h4 class="text-center font-medium text-gray-700 mb-2">Cycle Time Breakdown</h4>
+                         <div class="chart-container">
+                             <canvas id="cycle-chart"></canvas>
+                         </div>
+                         <p id="cycle-time-text" class="text-center text-sm text-gray-600 font-semibold"></p>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- Step 4: Banked Fletching Calculator -->
+        <section id="banked-fletching" class="hidden-section card p-6">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">Step 4: Banked Fletching Analysis</h2>
+            <p class="text-sm text-gray-600 mb-4">This section is auto-populated from your selections above. Choose a fletching action to see how long it would take to process the logs you gather in one hour.</p>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                    <label for="banked-log-type" class="block text-sm font-medium text-gray-700">Log Type</label>
+                    <select id="banked-log-type" class="input-field w-full mt-1"></select>
+                </div>
+                <div>
+                    <label for="log-quantity" class="block text-sm font-medium text-gray-700">Number of Logs</label>
+                    <input type="number" id="log-quantity" class="input-field w-full mt-1">
+                </div>
+                 <div>
+                    <label for="banked-fletch-action" class="block text-sm font-medium text-gray-700">Fletching Action</label>
+                    <select id="banked-fletch-action" class="input-field w-full mt-1">
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+            </div>
+            <div id="banked-results-display" class="hidden-section mt-6 border-t border-gray-200 pt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="p-4 rounded-lg bg-green-50 border border-green-200">
+                    <h4 class="font-medium text-green-800">Fletching XP/hr</h4>
+                    <p id="banked-fletch-xphr" class="text-3xl font-bold text-green-900 mt-1">0</p>
+                    <p class="text-xs text-green-600">Assumes continuous fletching.</p>
+                </div>
+                 <div class="p-4 rounded-lg bg-purple-50 border border-purple-200">
+                    <h4 class="font-medium text-purple-800">Total  Fletching XP</h4>
+                    <p id="total-banked-xp" class="text-3xl font-bold text-purple-900 mt-1">0</p>
+                </div>
+                <div class="p-4 rounded-lg bg-yellow-50 border border-yellow-200">
+                    <h4 class="font-medium text-yellow-800">Time to Process Logs</h4>
+                    <p id="banked-process-time" class="text-3xl font-bold text-yellow-900 mt-1">0h 0m 0s</p>
+                    <p class="text-xs text-yellow-600">Total time to fletch this quantity.</p>
+                </div>
+            </div>
+        </section>
+
+    </main>
+    
+    <footer class="text-center py-6 mt-8 border-t border-gray-200">
+        <p class="text-sm text-gray-500">Calculations based on the "Technical Blueprint for a OSRS Woodcutting / Fletching Efficiency Calculator".</p>
+        <p class="text-xs text-gray-400 mt-1">This is an interactive visualization and not an official Jagex product.</p>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const DATA = {
+                axes: {
+                    'Bronze': { name: 'Bronze hatchet', level: 1, power: 100 },
+                    'Iron': { name: 'Iron hatchet', level: 1, power: 200 },
+                    'Steel': { name: 'Steel hatchet', level: 6, power: 300 },
+                    'Black': { name: 'Black hatchet', level: 11, power: 350 },
+                    'Mithril': { name: 'Mithril hatchet', level: 21, power: 400 },
+                    'Adamant': { name: 'Adamant hatchet', level: 31, power: 500 },
+                    'Rune': { name: 'Rune hatchet', level: 41, power: 600 },
+                    'Dragon': { name: 'Dragon hatchet', level: 61, power: 700 },
+                    'Crystal': { name: 'Crystal hatchet', level: 71, power: 800 },
+                    '3rd-age': { name: '3rd Age hatchet', level: 61, power: 700 }
+                },
+                trees: {
+                    'Normal': { name: 'Tree', logType: 'Logs', wcLvl: 1, xp: 25, chance: 64, ratio: 3.1250 },
+                    'Oak': { name: 'Oak', logType: 'Oak logs', wcLvl: 15, xp: 37.5, chance: 32, ratio: 3.1250 },
+                    'Willow': { name: 'Willow', logType: 'Willow logs', wcLvl: 30, xp: 67.5, chance: 16, ratio: 3.1250 },
+                    'Teak': { name: 'Teak', logType: 'Teak logs', wcLvl: 35, xp: 85, chance: 15, ratio: 3.1250 },
+                    'Maple': { name: 'Maple Tree', logType: 'Maple logs', wcLvl: 45, xp: 100, chance: 12.5, ratio: 3.1250 },
+                    'Hollow': { name: 'Hollow tree', logType: 'Bark', wcLvl: 45, xp: 82.5, chance: 12, ratio: 3.1250 },
+                    'Mahogany': { name: 'Mahogany', logType: 'Mahogany logs', wcLvl: 50, xp: 125, chance: 9.5, ratio: 3.1250 },
+                    'Arctic-Pine': { name: 'Arctic Pine', logType: 'Arctic pine logs', wcLvl: 54, xp: 145, chance: 8, ratio: 3.1250 },
+                    'Yew': { name: 'Yew', logType: 'Yew logs', wcLvl: 60, xp: 175, chance: 6, ratio: 3.1250 },
+                    'Magic': { name: 'Magic tree', logType: 'Magic logs', wcLvl: 75, xp: 250, chance: 3, ratio: 3.1250 },
+                    'Redwood': { name: 'Redwood', logType: 'Redwood logs', wcLvl: 90, xp: 380, chance: 2.5, ratio: 3.1250 }
+                },
+                fletching: [
+                    { logType: 'Logs', item: 'Arrow shaft', fletchLvl: 1, xp: 5, items: 15, ticks: 2, logsPer: 1 },
+                    { logType: 'Logs', item: 'Shortbow (u)', fletchLvl: 5, xp: 5, items: 1, ticks: 3, logsPer: 1 },
+                    { logType: 'Logs', item: 'Longbow (u)', fletchLvl: 10, xp: 10, items: 1, ticks: 3, logsPer: 1 },
+                    { logType: 'Oak logs', item: 'Arrow shaft', fletchLvl: 15, xp: 10, items: 30, ticks: 2, logsPer: 1 },
+                    { logType: 'Oak logs', item: 'Oak shortbow (u)', fletchLvl: 20, xp: 16.5, items: 1, ticks: 3, logsPer: 1 },
+                    { logType: 'Oak logs', item: 'Oak longbow (u)', fletchLvl: 25, xp: 25, items: 1, ticks: 3, logsPer: 1 },
+                    { logType: 'Oak logs', item: 'Oak stock', fletchLvl: 24, xp: 16, items: 1, ticks: 3, logsPer: 1 },
+                    { logType: 'Oak logs', item: 'Oak shield', fletchLvl: 27, xp: 50, items: 1, ticks: 3, logsPer: 2 },
+                    { logType: 'Willow logs', item: 'Arrow shaft', fletchLvl: 30, xp: 15, items: 45, ticks: 2, logsPer: 1 },
+                    { logType: 'Willow logs', item: 'Willow shortbow (u)', fletchLvl: 35, xp: 33.3, items: 1, ticks: 3, logsPer: 1 },
+                    { logType: 'Willow logs', item: 'Willow longbow (u)', fletchLvl: 40, xp: 41.5, items: 1, ticks: 3, logsPer: 1 },
+                    { logType: 'Maple logs', item: 'Arrow shaft', fletchLvl: 45, xp: 20, items: 60, ticks: 2, logsPer: 1 },
+                    { logType: 'Maple logs', item: 'Maple shortbow (u)', fletchLvl: 50, xp: 50, items: 1, ticks: 3, logsPer: 1 },
+                    { logType: 'Maple logs', item: 'Maple longbow (u)', fletchLvl: 55, xp: 58.3, items: 1, ticks: 3, logsPer: 1 },
+                    { logType: 'Yew logs', item: 'Yew shortbow (u)', fletchLvl: 65, xp: 67.5, items: 1, ticks: 3, logsPer: 1 },
+                    { logType: 'Yew logs', item: 'Yew longbow (u)', fletchLvl: 70, xp: 75, items: 1, ticks: 3, logsPer: 1 },
+                    { logType: 'Magic logs', item: 'Magic shortbow (u)', fletchLvl: 80, xp: 83.3, items: 1, ticks: 3, logsPer: 1 },
+                    { logType: 'Magic logs', item: 'Magic longbow (u)', fletchLvl: 85, xp: 91.5, items: 1, ticks: 3, logsPer: 1 },
+                    { logType: 'Redwood logs', item: 'Redwood shield', fletchLvl: 92, xp: 168, items: 1, ticks: 3, logsPer: 2 },
+                ]
+            };
+
+            const wcLvlEl = document.getElementById('wc-level');
+            const fletchLvlEl = document.getElementById('fletch-level');
+            const axeSelectEl = document.getElementById('axe-select');
+            const inventorySpaceEl = document.getElementById('inventory-space');
+            const wcTbodyEl = document.getElementById('wc-results-tbody');
+            const finalResultsSection = document.getElementById('final-results');
+            const bankingTimeEl = document.getElementById('banking-time');
+            const selectedTreeNameEl = document.getElementById('selected-tree-name');
+            const resultsDisplayEl = document.getElementById('results-display');
+            
+            const finalWcEl = document.getElementById('final-wc-xp');
+            const bankedLogsHrEl = document.getElementById('banked-logs-hr');
+            const cycleTimeTextEl = document.getElementById('cycle-time-text');
+
+            const bankedFletchingSection = document.getElementById('banked-fletching');
+            const bankedLogTypeEl = document.getElementById('banked-log-type');
+            const bankedFletchActionEl = document.getElementById('banked-fletch-action');
+            const logQuantityEl = document.getElementById('log-quantity');
+            const bankedResultsDisplayEl = document.getElementById('banked-results-display');
+            const bankedFletchXphrEl = document.getElementById('banked-fletch-xphr');
+            const totalBankedXpEl = document.getElementById('total-banked-xp');
+            const bankedProcessTimeEl = document.getElementById('banked-process-time');
+            
+            let cycleChart;
+            let state = {
+                wcLvl: 78,
+                fletchLvl: 1,
+                axe: '',
+                inventorySpace: 28,
+                bankTime: 10,
+                selectedTree: null,
+                wcRates: {},
+            };
+
+            function populateAxeSelector() {
+                Object.values(DATA.axes).forEach(axe => {
+                    const option = document.createElement('option');
+                    option.value = axe.name.split(' ')[0];
+                    option.textContent = axe.name;
+                    axeSelectEl.appendChild(option);
+                });
+                axeSelectEl.value ='';
+            }
+
+            function calculateSuccessChance(wcLvl, axeKey, treeKey) {
+                const axe = DATA.axes[axeKey];
+                const tree = DATA.trees[treeKey];
+                if (!axe || !tree || wcLvl < tree.wcLvl || wcLvl < axe.level) return 0;
+                const lowChance = Math.floor(tree.chance + (tree.chance / 2) * (axe.power - 100) / 100);
+                const highChance = Math.floor(lowChance * tree.ratio);
+                const successModifier = Math.floor(((lowChance * (99 - wcLvl)) + (highChance * (wcLvl - 1))) / 98);
+                return Math.min(successModifier, 255) / 256;
+            }
+
+            function updateWcResultsTable() {
+                wcTbodyEl.innerHTML = '';
+                state.wcRates = {};
+                for (const treeKey in DATA.trees) {
+                    const tree = DATA.trees[treeKey];
+                    if (state.wcLvl < tree.wcLvl) continue;
+                    const successChance = calculateSuccessChance(state.wcLvl, state.axe, treeKey);
+                    if (successChance <= 0) continue;
+                    const logsPerHour = successChance * 1500;
+                    const xpPerHour = logsPerHour * tree.xp;
+                    state.wcRates[treeKey] = { success: successChance, logsHr: logsPerHour, wcXpHr: xpPerHour };
+                    const row = document.createElement('tr');
+                    row.dataset.treeKey = treeKey;
+                    row.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap">${tree.name}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">${tree.logType}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">${(successChance * 100).toFixed(2)}%</td>
+                        <td class="px-6 py-4 whitespace-nowrap">${Math.round(xpPerHour).toLocaleString()}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">${Math.round(logsPerHour).toLocaleString()}</td>
+                    `;
+                    wcTbodyEl.appendChild(row);
+                }
+            }
+            
+            function handleTreeSelection(e) {
+                const row = e.target.closest('tr');
+                if (!row) return;
+                const treeKey = row.dataset.treeKey;
+                if (state.selectedTree === treeKey) {
+                    state.selectedTree = null;
+                    row.classList.remove('selected');
+                    finalResultsSection.style.display = 'none';
+                    bankedFletchingSection.style.display = 'none';
+                } else {
+                    state.selectedTree = treeKey;
+                    document.querySelectorAll('#wc-results-tbody tr').forEach(r => r.classList.remove('selected'));
+                    row.classList.add('selected');
+                    selectedTreeNameEl.textContent = DATA.trees[treeKey].name;
+                    calculateChopAndBankCycle();
+                    finalResultsSection.style.display = 'block';
+                    bankedFletchingSection.style.display = 'block';
+                }
+            }
+
+            function calculateChopAndBankCycle() {
+                if (!state.selectedTree) {
+                    resultsDisplayEl.style.display = 'none';
+                    return;
+                }
+                const invSize = state.inventorySpace - 1;
+                const wcRate = state.wcRates[state.selectedTree];
+                const tree = DATA.trees[state.selectedTree];
+                const timeWC = (invSize / wcRate.logsHr) * 3600;
+                const timeBank = state.bankTime;
+                const totalCycleTime = timeWC + timeBank;
+                const overallWcXp = (invSize * tree.xp) / totalCycleTime * 3600;
+                const bankedLogsHr = invSize / totalCycleTime * 3600;
+
+                finalWcEl.textContent = Math.round(overallWcXp).toLocaleString();
+                bankedLogsHrEl.textContent = Math.round(bankedLogsHr).toLocaleString();
+                cycleTimeTextEl.textContent = `Total Cycle: ${totalCycleTime.toFixed(1)}s`;
+                
+                updateCycleChart(timeWC, timeBank);
+                updateBankedCalculatorInputs(tree.logType, bankedLogsHr);
+                resultsDisplayEl.style.display = 'block';
+            }
+
+            function updateCycleChart(wc, bank) {
+                const data = {
+                    labels: ['Woodcutting', 'Banking'],
+                    datasets: [{
+                        data: [wc, bank],
+                        backgroundColor: ['#60A5FA', '#A78BFA'],
+                        hoverOffset: 4
+                    }]
+                };
+                if (cycleChart) cycleChart.destroy();
+                cycleChart = new Chart(document.getElementById('cycle-chart'), {
+                    type: 'doughnut',
+                    data: data,
+                    options: {
+                        responsive: true, maintainAspectRatio: true,
+                        plugins: {
+                            legend: { position: 'bottom', labels: { boxWidth: 12 } },
+                            tooltip: {
+                                callbacks: { label: function(context) { return `${context.label}: ${context.raw.toFixed(1)}s`; } }
+                            }
+                        }
+                    }
+                });
+            }
+
+            function handleMainUpdate() {
+                state.wcLvl = parseInt(wcLvlEl.value) || 1;
+                state.fletchLvl = parseInt(fletchLvlEl.value) || 1;
+                state.axe = axeSelectEl.value;
+                state.inventorySpace = parseInt(inventorySpaceEl.value) || 28;
+                state.bankTime = parseFloat(bankingTimeEl.value) || 0;
+                updateWcResultsTable();
+                if (state.selectedTree) {
+                    if (!state.wcRates[state.selectedTree]) {
+                        state.selectedTree = null;
+                        finalResultsSection.style.display = 'none';
+                        bankedFletchingSection.style.display = 'none';
+                    } else {
+                       calculateChopAndBankCycle();
+                    }
+                }
+            }
+            
+            function populateBankedLogSelector() {
+                 const uniqueLogTypes = [...new Set(Object.values(DATA.trees).map(t => t.logType))];
+                 bankedLogTypeEl.innerHTML = '';
+                 uniqueLogTypes.forEach(logType => {
+                     const option = document.createElement('option');
+                     option.value = logType;
+                     option.textContent = logType;
+                     bankedLogTypeEl.appendChild(option);
+                 });
+            }
+
+            function updateBankedCalculatorInputs(logType, logsPerHour) {
+                bankedLogTypeEl.value = logType;
+                logQuantityEl.value = Math.round(logsPerHour);
+                updateBankedFletchActionOptions();
+            }
+
+            function updateBankedFletchActionOptions() {
+                const logType = bankedLogTypeEl.value;
+                const fletchLvl = state.fletchLvl;
+                bankedFletchActionEl.innerHTML = '<option value="">-- Choose Action --</option>';
+                const validActions = DATA.fletching.filter(action => action.logType === logType && fletchLvl >= action.fletchLvl);
+                validActions.forEach(action => {
+                    const option = document.createElement('option');
+                    option.value = DATA.fletching.indexOf(action);
+                    option.textContent = action.item;
+                    bankedFletchActionEl.appendChild(option);
+                });
+                calculateBankedFletchResults();
+            }
+            
+            function secondsToHms(d) {
+                d = Number(d);
+                var h = Math.floor(d / 3600);
+                var m = Math.floor(d % 3600 / 60);
+                var s = Math.floor(d % 3600 % 60);
+                return `${h}h ${m}m ${s}s`; 
+            }
+
+            function calculateBankedFletchResults() {
+                const actionIndex = bankedFletchActionEl.value;
+                const quantity = parseInt(logQuantityEl.value) || 0;
+                if (!actionIndex || quantity <= 0) {
+                    bankedResultsDisplayEl.style.display = 'none';
+                    return;
+                }
+                const action = DATA.fletching[parseInt(actionIndex)];
+                const xpPerHour = (action.xp / (action.ticks * 0.6)) * 3600;
+                const totalActions = quantity / action.logsPer;
+                const totalTimeSeconds = totalActions * action.ticks * 0.6;
+                const totalBankedXp = totalActions * action.xp;
+
+                bankedFletchXphrEl.textContent = Math.round(xpPerHour).toLocaleString();
+                totalBankedXpEl.textContent = Math.round(totalBankedXp).toLocaleString();
+                bankedProcessTimeEl.textContent = secondsToHms(totalTimeSeconds);
+                bankedResultsDisplayEl.style.display = 'grid';
+            }
+
+            // Event Listeners
+            [wcLvlEl, fletchLvlEl, inventorySpaceEl].forEach(el => el.addEventListener('input', handleMainUpdate));
+            axeSelectEl.addEventListener('change', handleMainUpdate);
+            bankingTimeEl.addEventListener('input', () => {
+                state.bankTime = parseFloat(bankingTimeEl.value) || 0;
+                if (state.selectedTree) {
+                    calculateChopAndBankCycle();
+                }
+            });
+            wcTbodyEl.addEventListener('click', handleTreeSelection);
+            
+            bankedLogTypeEl.addEventListener('change', updateBankedFletchActionOptions);
+            logQuantityEl.addEventListener('input', calculateBankedFletchResults);
+            bankedFletchActionEl.addEventListener('change', calculateBankedFletchResults);
+
+
+            // Initial Load
+            populateAxeSelector();
+            populateBankedLogSelector();
+            handleMainUpdate();
+        });
+    </script>
+</body>
+</html>
